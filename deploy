@@ -38,34 +38,174 @@ fatal() {
     exit 1
 }
 
+reprefer=1
+case $1 in
+    overwrite)
+        reprefer=0
+        ;;
+    "")
+        reprefer=1
+        ;;
+    *)
+        fatal "Argument parse"
+        ;;
+esac
+
 # ask function
-ask() {
-    log "$*"
+ask_pref() {
+    log "$2"
+    log "[y/n]"
+    preferences=$(cat "$1" || echo "")
+    case $reprefer in
+        1)
+            case $preferences in
+                0)
+                    log "Found preference file $1"
+                    log "Filling in automatically:"
+                    echo "y"
+                    return 0
+                    ;;
+                1)
+                    log "Found preference file $1"
+                    log "Filling in automatically:"
+                    echo "n"
+                    return 1
+                    ;;
+                *)
+                    log "No preference file found in $1"
+                    log "Proceeding to fill the preference"
+                    ;;
+            esac
+            ;;
+        0)
+            log "Overwriting old preferences:"
+            case $preferences in
+                0)
+                    log "Found preference file $1"
+                    log "Old value:"
+                    echo "y"
+                    ;;
+                1)
+                    log "Found preference file $1"
+                    log "Old value:"
+                    echo "n"
+                    ;;
+                *)
+                    log "No preference file found in $1"
+                    log "Proceeding to fill the preference"
+                    ;;
+            esac
+            log "Enter the new value:"
+            ;;
+        *)
+            fatal "Argument parse"
+            ;;
+    esac
     stty -icanon min 1 time 0
     while true
     do 
         input=$(head -c 1)
         echo ""
         case $input in 
-            [yY])
+            [Yy])
+                stty "$saved_tty_settings"
+                echo "0" > "$1"
                 return 0
-                break;
                 ;;
-            [nN])
+            [Nn])
+                stty "$saved_tty_settings"
+                echo "1" > "$1"
                 return 1
-                break;
                 ;;
             *)
-                log "Bad input"
+                log "Bad input: type \"y\" or \"n\""
                 ;;
         esac
     done 
     stty "$saved_tty_settings"
 }
 
-ask "Do you wish to install MBROLA?" 
+# preference function
+write_pref() {
+    log "$2"
+    preferences=$(cat "$1" && echo " " || echo "")
+    case $reprefer in
+        1)
+            case $preferences in
+                "")
+                    log "No preference file found in $1"
+                    log "Proceeding to fill the preference"
+                    ;;
+                *)
+                    log "Found preference file $1"
+                    log "Filling in automatically:"
+                    echo "$preferences"
+                    return 0
+                    ;;
+            esac
+            ;;
+        0)
+            log "Overwriting old preferences:"
+            case $preferences in
+                "")
+                    log "No preference file found in $1"
+                    log "Proceeding to fill the preference"
+                    ;;
+                *)
+                    log "Found preference file $1"
+                    log "Old value:"
+                    echo "$preferences"
+                    ;;
+            esac
+            log "Enter the new value:"
+            ;;
+        *)
+            fatal "Argument parse"
+            ;;
+    esac
+    input=$(head -1)
+    echo "$input" > "$1"
+}
+
+ask_safe() {
+    log "$*"
+    log "[Yes/No]"
+    while true
+    do 
+        input=$(head -1)
+        echo ""
+        case $input in 
+            [Yy][Ee][Ss])
+                return 0
+                ;;
+            [Nn][Oo])
+                return 1
+                ;;
+            *)
+                log "Bad input: type \"Yes\" or \"No\""
+                ;;
+        esac
+    done 
+}
+
+mkdir --parents "$HOME/.local/src/dunst-build/.preferences" || 
+    fatal "Creation of .local/src/dunst-build/.preferences directory"
+
+rm -Rf ~/.local/src/dunst-build/* || fatal "Cleaning up .local/src/dunst-build"
+cp -R ./* ~/.local/src/dunst-build/ || fatal "Moving sources to .local/src/dunst-build"
+
+newpreflist=$( (cat ~/.local/src/.preflist; echo "dunst-build") | sort | uniq ) ||
+    fatal "Getting preference list from .local/src"
+
+echo "$newpreflist" > ~/.local/src/.preflist || 
+    fatal "Updating preference list"
+
+ask_pref "$HOME/.local/src/dunst-build/.preferences/MBROLA" \
+    "Do you wish to install MBROLA?"
+
 case $? in
     0)
+        log "Installing MBROLA"
         sudo cp MBROLA/Bin/mbrola /usr/bin/mbrola || fatal "Installing MBROLA"
         sudo mkdir --parents /usr/share/mbrola/ || 
             fatal "/usr/share/mbrola directory setup"
@@ -82,8 +222,77 @@ case $? in
         ;;
 esac
 
+log "Installing dependencies"
 sudo pacman -S libnotify espeak-ng dunst speech-dispatcher ||
     fatal "Installing dependencies"
+
+write_pref "$HOME/.local/src/dunst-build/.preferences/transparency" \
+    "Enter notification transparency (leave blank for default: 30)[0;100]:"
+
+ask_pref "$HOME/.local/src/dunst-build/.preferences/custom_sizes" \
+    "Do you wish to customise notification sizes and positions?"
+
+case $? in 
+    0)
+        write_pref "$HOME/.local/src/dunst-build/.preferences/icon_size" \
+            "Enter maximum icon size in pixels (leave blank for default: 128):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/notification_height" \
+            "Enter minimum notification height in pixels (leave blank for default: 30):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/notification_limit" \
+            "Enter maximum amount of displayed notifications (leave blank for default: 5):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/notification_width" \
+            "Enter the notification width in pixels (leave blank for default: 400):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/position_left" \
+            "Enter the amount of pixels to shift the notification to the left from the upper right corner (leave blank for default: 35):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/position_down" \
+            "Enter the amount of pixels to shift the notification down (leave blank for default: 55):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/separator_height" \
+            "Enter the separator height in pixels (leave blank for default: 2):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/frame_width" \
+            "Enter the frame width in pixels (leave blank for default: 2):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/separator_padding" \
+            "Enter the padding between text and separator in pixels (leave blank for default: 8):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/horizontal_padding" \
+            "Enter the horizontal text padding in pixels (leave blank for default: 8):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/line_height" \
+            "Enter the minimum line height in pixels (leave blank for default: 0):"
+
+        write_pref "$HOME/.local/src/dunst-build/.preferences/icon_position" \
+            "Enter the side you want the icon to be displayed on (leave blank for default: left)[left/right]:"
+
+        ask_pref "$HOME/.local/src/dunst-build/.preferences/shrink" \
+            "Do you want to shrink the window if the notification is smaller than the width"
+
+        ;;
+    1)
+        touch ~/.local/src/dunst-build/.preferences/icon_size
+        touch ~/.local/src/dunst-build/.preferences/notification_height
+        touch ~/.local/src/dunst-build/.preferences/notification_limit
+        touch ~/.local/src/dunst-build/.preferences/notification_width
+        touch ~/.local/src/dunst-build/.preferences/position_left
+        touch ~/.local/src/dunst-build/.preferences/position_down
+        touch ~/.local/src/dunst-build/.preferences/separator_height
+        touch ~/.local/src/dunst-build/.preferences/frame_width
+        touch ~/.local/src/dunst-build/.preferences/separator_padding
+        touch ~/.local/src/dunst-build/.preferences/horizontal_padding
+        ;;
+    *)
+        fatal "Ask"
+        ;;
+esac
+
+ask_pref "$HOME/.local/src/dunst-build/.preferences/markup" \
+    "Do you want notifications to support html markup formatting?"
 
 mkdir --parents ~/.config/dunst || fatal "Config directory creation"
 rm -Rf ~/.config/dunst/. || fatal "Config directory cleanup"
