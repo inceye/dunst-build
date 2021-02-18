@@ -1,0 +1,53 @@
+#!/bin/bash
+path_initial=$(pwd)
+saved_tty_settings=$(stty -g)
+
+# In case user stops the script, log the interrupt action and 
+# execute cleanup function "finish"
+trap terminate INT
+
+terminate() {
+    log "Intereupt signal received"
+    fatal "Script"
+}
+
+finish() {
+    log "Exiting"
+    stty "$saved_tty_settings" || 
+        log "Could not restore original tty settings"
+
+    cd "$path_initial" || 
+        log "Could not move back to the initial directory" && exit 1
+
+    rm -Rf tmp || log "Could not remove the tmp directory" && exit 1
+}
+
+# logging fn
+log() {
+    local color_on=$'\e[0;32m'
+    local color_off=$'\e[0m'
+    echo "${color_on}[$(date)]${color_off} $*" >&2
+}
+
+# error fn
+fatal() {
+    local color_fatal=$'\033[0;31m'
+    log "${color_fatal}$* failed!"
+    log "${color_fatal}    Error!"
+    finish
+    exit 1
+}
+
+sudo pacman -S libnotify espeak-ng dunst speech-dispatcher ||
+    fatal "Installing dependencies"
+
+mkdir --parents ~/.config/dunst || fatal "Config directory creation"
+rm -Rf ~/.config/dunst/. || fatal "Config directory cleanup"
+cp config/* ~/.config/dunst/ || fatal "Copying new configs to .config/dunst"
+
+sudo cp MBROLA/Bin/mbrola /usr/bin/mbrola || fatal "Installing MBROLA"
+sudo mkdir --parents /usr/share/mbrola/ || 
+    fatal "/usr/share/mbrola directory setup"
+
+sudo cp /linux-autoinstall/rice/MBROLA/us* /usr/share/mbrola || 
+    fatal "Mbrola voices copy"
